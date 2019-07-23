@@ -2595,14 +2595,13 @@ var source = CancelToken.source();
       fileChoosed: [],
       contextmenu: false,
       multiple: false,
-      search: ""
+      search: "",
+      queeUpload: 0
     };
   },
   computed: {
     listingFiles: function listingFiles() {
-      return this.listFiles.data; // .filter(e => {
-      //     return e.name.toLowerCase().match(new RegExp(this.search.toLowerCase()))
-      // })
+      return this.listFiles.data;
     }
   },
   methods: {
@@ -2674,22 +2673,35 @@ var source = CancelToken.source();
           while (1) {
             switch (_context.prev = _context.next) {
               case 0:
-                Array.from(files).forEach(function (f, i) {
+                _context.next = 2;
+                return Array.from(files).forEach(function (f, i) {
+                  _this2.files.push(f);
+
                   if (!f.type.match("image.*") && !f.type.match("video.*") && !type.match("audio.*")) {
                     console.log("".concat(f.name, " is not image"));
                     return;
                   }
 
-                  _this2.uploadingFile(f, i + _this2.files.length);
+                  _this2.fileUploadForm.uploadFile.push({
+                    name: f.name,
+                    type: _this2.getIconsTypeFile(f.type),
+                    status: 1,
+                    abort: '',
+                    hovered: false
+                  });
                 });
-                this.files = this.files.concat(files);
 
               case 2:
+                setTimeout(function () {
+                  _this2.uploadingFile(files[_this2.queeUpload], _this2.queeUpload);
+                }, 1000);
+
+              case 3:
               case "end":
                 return _context.stop();
             }
           }
-        }, _callee, this);
+        }, _callee);
       }));
 
       function fetchingFiles(_x) {
@@ -2701,7 +2713,8 @@ var source = CancelToken.source();
     uploadingFile: function uploadingFile(file, i) {
       var _this3 = this;
 
-      var multiple = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : true;
+      file = file ? file : this.files[i];
+      console.log(file);
       var vm = this;
       var cancel;
       var FData = new FormData();
@@ -2730,37 +2743,35 @@ var source = CancelToken.source();
         _this3.fileUploadForm.success += 1;
         var text = " Upload Selesai";
         _this3.fileUploadForm.text = _this3.fileUploadForm.success + text;
-      })["catch"](function (_ref2) {
-        var _ref2$response = _ref2.response,
-            status = _ref2$response.status,
-            statusText = _ref2$response.statusText,
-            data = _ref2$response.data;
+        _this3.queeUpload += 1;
 
-        if (status == 500) {
-          return _this3.$toast.error(statusText);
+        if (_this3.queeUpload < _this3.files.length) {
+          console.log(_this3.files[_this3.queeUpload]);
+
+          _this3.uploadingFile(_this3.files[_this3.queeUpload], _this3.queeUpload);
+        }
+      })["catch"](function (_ref2) {
+        var response = _ref2.response;
+        _this3.queeUpload += 1;
+
+        if (_this3.queeUpload < _this3.files.length) {
+          _this3.uploadingFile(_this3.files[_this3.queeUpload], _this3.queeUpload);
         }
 
-        Object.keys(data).forEach(function (e) {
-          _this3.$toast.error(data[e]);
+        if (response.status == 500) {
+          return _this3.$toast.error(response.statusText);
+        }
+
+        Object.keys(response.data).forEach(function (e) {
+          _this3.$toast.error(response.data[e]);
         });
         _this3.fileUploadForm.uploadFile[i].status = 3;
       });
-
-      if (multiple) {
-        this.fileUploadForm.uploadFile.push({
-          name: file.name,
-          type: this.getIconsTypeFile(file.type),
-          status: 1,
-          abort: cancel,
-          hovered: false
-        });
-      } else {
-        this.fileUploadForm.uploadFile[i].status = 1;
-        this.fileUploadForm.uploadFile[i].name = file.name;
-        this.fileUploadForm.uploadFile[i].type = this.getIconsTypeFile(file.type);
-        this.fileUploadForm.uploadFile[i].abort = cancel;
-        this.fileUploadForm.uploadFile[i].hovered = false;
-      }
+      this.fileUploadForm.uploadFile[i].status = 1;
+      this.fileUploadForm.uploadFile[i].name = file.name;
+      this.fileUploadForm.uploadFile[i].type = this.getIconsTypeFile(file.type);
+      this.fileUploadForm.uploadFile[i].abort = cancel;
+      this.fileUploadForm.uploadFile[i].hovered = false;
     },
     abortRequest: function abortRequest(file) {
       file.abort();

@@ -568,15 +568,13 @@ export default {
       fileChoosed: [],
       contextmenu: false,
       multiple: false,
-      search: ""
+      search: "",
+      queeUpload: 0,
     };
   },
   computed: {
     listingFiles() {
           return this.listFiles.data
-          // .filter(e => {
-          //     return e.name.toLowerCase().match(new RegExp(this.search.toLowerCase()))
-          // })
     }
   },
   methods: {
@@ -631,7 +629,8 @@ export default {
       this.fetchingFiles(files);
     },
     async fetchingFiles(files) {
-      Array.from(files).forEach((f, i) => {
+      await Array.from(files).forEach((f, i) => {
+          this.files.push(f)
         if (
           !f.type.match("image.*") &&
           !f.type.match("video.*") &&
@@ -640,16 +639,25 @@ export default {
           console.log(`${f.name} is not image`);
           return;
         }
-        this.uploadingFile(f, i + this.files.length);
+        this.fileUploadForm.uploadFile.push({
+          name: f.name,
+          type: this.getIconsTypeFile(f.type),
+          status: 1,
+          abort: '',
+          hovered: false
+        });
       });
-      this.files = this.files.concat(files);
+      setTimeout(() => {
+          this.uploadingFile(files[this.queeUpload], this.queeUpload)
+      }, 1000)
     },
-    uploadingFile(file, i, multiple = true) {
+    uploadingFile(file, i) {
+        file = file ? file: this.files[i]
+        console.log(file);
       const vm = this;
       let cancel;
       const FData = new FormData();
       FData.append("file", file);
-
       this.$axios
         .post("/media/upload", FData, {
           headers: {
@@ -677,25 +685,26 @@ export default {
           this.fileUploadForm.success += 1;
           let text = " Upload Selesai";
           this.fileUploadForm.text = this.fileUploadForm.success + text;
-        })
-        .catch(({ response: { status, statusText, data } }) => {
-          if (status == 500) {
-            return this.$toast.error(statusText);
+          this.queeUpload += 1;
+          if(this.queeUpload < this.files.length){
+              console.log(this.files[this.queeUpload]);
+              this.uploadingFile(this.files[this.queeUpload], this.queeUpload)
           }
-          Object.keys(data).forEach(e => {
-            this.$toast.error(data[e]);
+        })
+        .catch(({ response }) => {
+            this.queeUpload += 1;
+            if(this.queeUpload < this.files.length){
+                this.uploadingFile(this.files[this.queeUpload], this.queeUpload)
+            }
+          if (response.status == 500) {
+            return this.$toast.error(response.statusText);
+          }
+          Object.keys(response.data).forEach(e => {
+            this.$toast.error(response.data[e]);
           });
           this.fileUploadForm.uploadFile[i].status = 3;
         });
-      if (multiple) {
-        this.fileUploadForm.uploadFile.push({
-          name: file.name,
-          type: this.getIconsTypeFile(file.type),
-          status: 1,
-          abort: cancel,
-          hovered: false
-        });
-      } else {
+
         this.fileUploadForm.uploadFile[i].status = 1;
         this.fileUploadForm.uploadFile[i].name = file.name;
         this.fileUploadForm.uploadFile[i].type = this.getIconsTypeFile(
@@ -703,7 +712,6 @@ export default {
         );
         this.fileUploadForm.uploadFile[i].abort = cancel;
         this.fileUploadForm.uploadFile[i].hovered = false;
-      }
     },
     abortRequest(file) {
       file.abort();

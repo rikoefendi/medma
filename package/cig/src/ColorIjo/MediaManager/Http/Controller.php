@@ -64,21 +64,29 @@ class Controller extends BaseController
                 'msg' => 'File is exists!!!'
             ], 422);
         }
-        $unique = $this->resizeImage($file);
+        $image = Image::make($realPath);
+        $res = $this->resizeImage($file);
         $model = new Model();
         $model->name = $name;
         $model->mime = $mime;
         $model->title = $title;
         $model->alt = $title;
-        $model->unique = $unique;
-        $model->save();
-        return [
-            'url' => ['thumb' => env('APP_URL').'/media/d/file/'.$model->unique.'/default.jpg'],
-            'name' => $name,
-            'mime' => $mime,
-            'unique' => $model->unique,
-            'id' => $model->id
-        ];
+        $model->unique = $res['name'];
+        $model->props = json_encode([
+            'file' => $res['size'],
+            'dimensions' => $image->width().'x'.$image->height(),
+            'size' => $file->getSize()
+        ]);
+        if($res['size']){
+            $model->save();
+            return [
+                'url' => ['thumb' => env('APP_URL').'/media/d/file/'.$model->unique.'/default.jpg'],
+                'name' => $name,
+                'mime' => $mime,
+                'unique' => $model->unique,
+                'id' => $model->id
+            ];
+        }
     }
 
     public function show($unique, Request $request)
@@ -179,31 +187,88 @@ class Controller extends BaseController
 
     private function resizeImage($file){
         $sizes = config('medma.size');
-        $sizes['default'] = '200x190';
-        $sizes['maxresdefault'] = '';
+        $sizes['default'] = [
+            'auto' => true,
+            'w' => 200,
+            'h' => 190
+        ];
+        $sizes['maxresdefault'] = [
+            'auto' => true,
+            'w' => 1280,
+            'h' => 720
+        ];
         $name = uniqid();
         $pathOri = config('medma.path').'/original/'.$name;
+        $size = [];
         foreach ($sizes as $pathName => $res) {
-            $this->makeFile($file, $pathName, $name, explode('x', $res));
+            $siz = $this->makeFile($file, $pathName, $name, $res);
+            if($siz){ $size[] = $siz;}
         }
         Storage::put($pathOri, base64_encode(file_get_contents($file->getRealPath())));
-        return $name;
+        return [
+            'name' => $name,
+            'size' => $size
+        ];
     }
 
     private function makeFile($file, $pathName, $name, $res){
         $path = config('medma.path').'/'.$pathName.'/'.$name;
         $content = file_get_contents($file->getRealPath());
         $quality = config('medma.compress_quality');
+        $encoded = '';
+        $maxres = config('medma.path').'/maxresdefault/'.$name;
+        $ext = $file->getClientOriginalExtension();
         $image = Image::make($content);
-        if(is_numeric($res[0]) && is_numeric($res[1])){
-            if($image->width() < $image->height() || $pathName == 'thumb'){
-                $image->fit($res[0], $res[1]);
-            }else{
-                $image->resize($res[0], $res[1]);
+        if($res['auto']){
+            if($image->width() <= $image->height() && $image->height() >= $res['h'] && $pathName != 'default'){
+                $encoded = $this->createCanvas($image, $res, 'landscape', $ext);
+                Storage::put($path, $encoded);
+                return $pathName;
+            }elseif(!Storage::exists($path) && $pathName == 'default'){
+                $encoded = $image->fit($res['w'], $res['h'], function($img){
+                    $img->aspectRatio();
+                })->encode($ext, config('medma.compress_quality'))->encoded;
+                Storage::put($path, base64_encode($encoded));
+                return $pathName;
+            }elseif($image->width() <= $image->height() && $image->height() <= $res['h']){
+                $encoded = $image->encode($ext, config('medma.compress_quality'))->encoded;
+                if(!Storage::exists($maxres)){
+                    Storage::put($maxres, base64_encode($encoded));
+                    return 'maxresdefault';
+                }
+            }elseif($image->width() > $image->height() && $image->height() >= $res['w']){
+                $encoded = $this->createCanvas($image, $res, 'potrait', $ext);
+                Storage::put($path, $encoded);
+                return $pathName;
+            }elseif($image->width() > $image->height() && $image->height() <= $res['w']){
+                $encoded = $image->encode($ext, config('medma.compress_quality'))->encoded;
+                if(!Storage::exists($maxres)){
+                    Storage::put($maxres, base64_encode($encoded));
+                    return 'maxresdefault';
+                }
             }
+        }else{
+            $encoded = $image->resize($res['w'], $res['h'])->encode($ext, config('medma.compress_quality'))->encoded;
+            Storage::put(config('medma.path').'/'.$pathName.'/'.$name, base64_encode($encoded));
+            return $pathName;
         }
-        $image->encode($file->getClientOriginalExtension(), $quality)->encoded;
-        Storage::put($path, base64_encode($image));
+    }
+    private function createCanvas($image, $res, $rotate, $ext){
+        if($rotate == 'landscape'){
+            $image->resize(null, $res['h'], function($img){
+                $img->aspectRatio();
+            });
+        }
+        if($rotate == 'potrait'){
+            $image->resize($res['w'], null, function($img){
+                $img->aspectRatio();
+            });
+        }
+        $encoded = Image::canvas($res['w'], $res['h']);
+        if($ext != 'png'){
+            $encoded->fill('#000');
+        }
+        return base64_encode($encoded->insert($image->encode($ext)->encoded, 'center')->encode($ext, config('medma.compress_quality'))->encoded);
     }
 
     public function getLinkDownload(Request $request)
